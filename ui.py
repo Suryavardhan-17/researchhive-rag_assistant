@@ -13,8 +13,20 @@ if file and st.button('Index PDF'):
 question = st.text_input('Ask a question about your documents')
 if st.button('Search') and question:
     try:
-        r = requests.post(f'{api}/ask', json={'question': question}, timeout=30)
+        r = requests.post(f'{api}/ask', json={'question': question}, timeout=120)
         r.raise_for_status(); data = r.json()
-        st.write(data['answer'])
-        with st.expander('Retrieval scores and citations'): st.json(data['citations'])
-    except requests.RequestException as exc: st.error(str(exc))
+
+        st.subheader("AI-Generated Answer")
+        st.write(data["answer"])
+
+        st.subheader("Retrieved Evidence")
+        for citation in data.get("citations", []):
+            st.markdown(
+                f"**Source: {citation['source']} | Page {citation['page']}**"
+            )
+            st.write(citation["text"])
+            st.divider()
+        with st.expander('Retrieval scores and citations'):
+            st.json(data['citations'])
+    except requests.RequestException as exc:
+        st.error(str(exc))

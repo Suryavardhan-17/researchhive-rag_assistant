@@ -2,6 +2,7 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from pydantic import BaseModel, Field
 from io import BytesIO
 from .core import Retriever, extract_pdf, evidence_answer
+from ollama import chat
 
 app = FastAPI(title='ResearchHive - Evidence-First Document Q&A')
 retriever = Retriever()
@@ -34,6 +35,45 @@ async def upload_document(file: UploadFile = File(...)):
 
 @app.post('/ask')
 def ask(payload: Query):
+    # Step 1: Find relevant passages from the PDF
     results = retriever.search(payload.question, payload.top_k)
-    return {'answer': evidence_answer(payload.question, results), 'citations': results,
-            'generation_mode': 'extractive (no LLM)'}
+
+    # Step 2: Handle questions with no matching evidence
+    if not results:
+        return {
+            'answer': 'No relevant evidence found in the uploaded documents.',
+            'citations': [],
+            'generation_mode': 'no evidence'
+        }
+
+    # Step 3: Prepare the retrieved PDF passages
+    context = "\n\n".join(
+        f"Source: {item['source']}, Page: {item['page']}\n{item['text']}"
+        for item in results
+    )
+
+    # Step 4: Ask Llama 3.2 to generate an answer
+    response = chat(
+        model='llama3.2:3b',
+        messages=[
+            {
+                'role': 'system',
+                'content': (
+                    'Answer questions using only the provided document context. '
+                    'If the context does not contain the answer, say you do not know. '
+                    'Do not invent facts. Cite the source and page number.'
+                )
+            },
+            {
+                'role': 'user',
+                'content': f"Context:\n{context}\n\nQuestion: {payload.question}"
+            }
+        ]
+    )
+
+    # Step 5: Return the AI answer and original citations
+    return {
+        'answer': response.message.content,
+        'citations': results,
+        'generation_mode': 'ollama llama3.2:3b'
+    }
